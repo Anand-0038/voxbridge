@@ -123,5 +123,5 @@ DEMO_MODE=true TTS_PROVIDER=fixture uv run uvicorn app.main:app --host 127.0.0.1
 ```
 
 Then upload a real video from the Upload page. This exercises the backend's
-real job, PostgreSQL, FFmpeg, consent, audit, and download paths while using
+real job, SQLite, FFmpeg, consent, audit, and download paths while using
 clearly labeled local fixture transcript/translation/tone providers.

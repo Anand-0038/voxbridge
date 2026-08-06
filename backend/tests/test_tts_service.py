@@ -1,10 +1,17 @@
 import asyncio
+import io
+import wave
 from pathlib import Path
 
 import pytest
 
 from app.models.schemas import TranslationSegment
-from app.services.tts_service import synthesize_speech_parallel
+from app.services.tts_service import (
+    _prepare_audio_payload,
+    _resolve_tts_provider,
+    _synthesize_with_openai,
+    synthesize_speech_parallel,
+)
 
 
 def _translation() -> list[TranslationSegment]:
@@ -67,3 +74,51 @@ def test_fixture_provider_is_rejected_in_real_mode(monkeypatch):
                 consent_verified=True,
             )
         )
+
+
+def test_gemini_pcm_payload_is_wrapped_as_wav():
+    payload, extension = _prepare_audio_payload(
+        b"\x00\x00" * 240,
+        "audio/L16;codec=pcm;rate=24000",
+    )
+
+    assert extension == "wav"
+    with wave.open(io.BytesIO(payload), "rb") as wav_file:
+        assert wav_file.getnchannels() == 1
+        assert wav_file.getsampwidth() == 2
+        assert wav_file.getframerate() == 24000
+        assert wav_file.getnframes() == 240
+
+
+def test_openai_provider_generates_mp3_request(monkeypatch):
+    monkeypatch.setenv("DEMO_MODE", "false")
+    monkeypatch.setenv("TTS_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
+    monkeypatch.setenv("OPENAI_TTS_VOICE", "alloy")
+    captured = {}
+
+    class Response:
+        status_code = 200
+        content = b"mp3-audio"
+        text = ""
+        headers = {"Content-Type": "audio/mpeg"}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured["json"] = kwargs["json"]
+        captured["authorization"] = kwargs["headers"]["Authorization"]
+        return Response()
+
+    monkeypatch.setattr("requests.post", fake_post)
+
+    assert _resolve_tts_provider() == "openai"
+    audio, mime = _synthesize_with_openai("Hola", "Spanish")
+
+    assert audio == b"mp3-audio"
+    assert mime == "audio/mpeg"
+    assert captured["url"] == "https://api.openai.com/v1/audio/speech"
+    assert captured["json"]["model"] == "gpt-4o-mini-tts"
+    assert captured["json"]["voice"] == "alloy"
+    assert captured["json"]["response_format"] == "mp3"
+    assert captured["authorization"] == "Bearer test-key"

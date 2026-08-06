@@ -11,8 +11,8 @@ FastAPI backend for the VoxBridge video dubbing platform.
 - Python 3.11+
 - ffmpeg installed and in PATH
 - Optional: rubberband CLI; FFmpeg's native rubberband filter is used when the CLI is unavailable
-- Gemini API key
-- ElevenLabs API key
+- `yt-dlp` is installed for YouTube URL acquisition
+- A Gemini key plus the key for the selected TTS provider is required in real-provider mode
 
 ### Installation
 
@@ -24,7 +24,7 @@ uv sync
 source .venv/bin/activate  # Linux/Mac
 # .venv\Scripts\activate   # Windows
 
-# Copy environment template and add your API keys
+# Copy environment template; local mode uses SQLite and explicit fixtures
 cp .env.example .env
 ```
 
@@ -33,17 +33,19 @@ cp .env.example .env
 Edit `.env` file with your credentials:
 
 ```
-GEMINI_API_KEY=your_gemini_api_key
-ELEVENLABS_API_KEY=your_elevenlabs_api_key
-DEMO_MODE=false
-TTS_PROVIDER=elevenlabs
+DATABASE_URL=sqlite:///storage/voxbridge.db
+DEMO_MODE=true
+TTS_PROVIDER=fixture
 ```
 
 For a local artifact-producing demo that does not call external AI providers,
-run the backend with `DEMO_MODE=true TTS_PROVIDER=fixture`. The fixture uses
-the real upload, PostgreSQL, FFmpeg, consent, audit, and download paths, but
-its transcript, translation, and tone audio are explicitly labeled fixtures;
-it is not an ElevenLabs voice.
+the fixture uses the real upload/YouTube acquisition, SQLite, FFmpeg, consent,
+audit, and download paths. Its transcript, translation, and tone audio are
+explicitly labeled fixtures; it is not an ElevenLabs voice.
+
+For real-provider mode, set `DEMO_MODE=false` and select `gemini`, `openai`, or
+`elevenlabs` with `TTS_PROVIDER`. OpenAI uses `OPENAI_API_KEY`, while Gemini can
+reuse the configured Gemini key. Use PostgreSQL if deploying beyond a local demo.
 
 ### Running
 
@@ -55,8 +57,9 @@ uv run uvicorn app.main:app --reload
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Real mode requires usable Gemini and ElevenLabs credentials. The application
-fails the job rather than substituting fabricated audio when a provider fails.
+Real mode requires usable Gemini credentials and a usable key for the selected
+TTS provider. The application fails the job rather than substituting fabricated
+audio when a provider fails.
 An ElevenLabs account that cannot use the configured voice will return a
 provider payment/plan error; that must be resolved in the ElevenLabs account
 before claiming a real voice result.
@@ -80,6 +83,19 @@ Upload a video file for processing.
   "job_id": "uuid-string",
   "status": "uploaded",
   "message": "Video uploaded successfully"
+}
+```
+
+#### POST /import-youtube
+
+Download one public YouTube video and enter the same processing pipeline.
+Playlists, channel URLs, and non-YouTube URLs are rejected. Publishing to a
+YouTube channel is intentionally not implemented.
+
+**Request:**
+```json
+{
+  "url": "https://www.youtube.com/watch?v=video-id"
 }
 ```
 
@@ -213,7 +229,7 @@ Language translation with transparency:
 
 Text-to-speech with ethical safeguards:
 - Require consent confirmation
-- Generate audio via ElevenLabs
+- Generate audio via Gemini, OpenAI, or ElevenLabs
 - Add AI-generated metadata
 - Log voice parameters
 - Use the explicit FFmpeg fixture only in demo mode
@@ -222,6 +238,6 @@ Text-to-speech with ethical safeguards:
 
 Comprehensive logging:
 - Log all pipeline steps
-- Store to PostgreSQL
+- Store to SQLite locally or PostgreSQL in deployment
 - Export JSON format
 - Generate compliance reports

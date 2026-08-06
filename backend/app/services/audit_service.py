@@ -693,6 +693,23 @@ async def get_audit_report(job_id: str) -> Optional[AuditReportResponse]:
                 translation_data = step.details
             elif step.step_name == "tts_synthesis" and step.status == "completed":
                 voice_synthesis = step.details
+
+        # Normalize translation_data payload for UI consumers.
+        if translation_data:
+            normalized_translation = dict(translation_data)
+            if "segments_translated" not in normalized_translation:
+                normalized_translation["segments_translated"] = normalized_translation.get(
+                    "segment_count", 0
+                )
+            if "average_confidence" not in normalized_translation:
+                normalized_translation["average_confidence"] = 0.0
+            if "source_language" not in normalized_translation:
+                normalized_translation["source_language"] = "en"
+            if "target_language" not in normalized_translation:
+                normalized_translation["target_language"] = job.get("target_language") or "unknown"
+            if "samples" not in normalized_translation:
+                normalized_translation["samples"] = []
+            translation_data = normalized_translation
         
         # Extract outputs from state_data (JSONB)
         outputs = {}

@@ -34,7 +34,7 @@
 │                 │      │  │  └─────────────────┘  └────────────────┘  │  │
 │                 │      │  │  ┌─────────────────┐  ┌────────────────┐  │  │
 │                 │      │  │  │ TTS Service     │  │ Audit Service  │  │  │
-│                 │      │  │  │ (ElevenLabs)    │  │ (Postgres)     │  │  │
+│                 │      │  │  │ (TTS Provider)  │  │ (Postgres)     │  │  │
 │                 │      │  │  └─────────────────┘  └────────────────┘  │  │
 │                 │      │  └───────────────────────────────────────────┘  │
 └─────────────────┘      └─────────────────────────────────────────────────┘
@@ -45,9 +45,9 @@
 │  User Browser   │              │           EXTERNAL SERVICES             │
 │  localhost:5173 │              │                                         │
 └─────────────────┘              │  ┌─────────────┐    ┌─────────────────┐ │
-                                 │  │  Gemini AI  │    │   ElevenLabs    │ │
-                                 │  │  - Analysis │    │   - Voice TTS   │ │
-                                 │  │  - Translate│    │   - Multilingual│ │
+                                 │  │  Gemini AI  │    │  TTS Providers  │ │
+                                 │  │  - Analysis │    │ Gemini / OpenAI │ │
+                                 │  │  - Translate│    │ / ElevenLabs    │ │
                                  │  └─────────────┘    └─────────────────┘ │
                                  └─────────────────────────────────────────┘
 ```
@@ -171,7 +171,7 @@
 │   TTS SERVICE       │
 │   tts_service.py    │
 ├─────────────────────┤
-│ • synthesize()      │────────► ElevenLabs API
+│ • synthesize()      │────────► Configured TTS API
 │ • verify_consent()  │          Voice synthesis
 │ • add_metadata()    │
 │                     │
@@ -182,7 +182,7 @@
 │   AUDIT SERVICE     │
 │   audit_service.py  │
 ├─────────────────────┤
-│ • create_job()      │────────► PostgreSQL DB
+│ • create_job()      │────────► SQLite / PostgreSQL DB
 │ • log_step()        │          (asyncpg)
 │ • get_report()      │
 │ • export_json()     │
@@ -195,8 +195,8 @@
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                          POSTGRESQL DATABASE                            │
-│                             (Neon / Local)                              │
+│                     SQLITE / POSTGRESQL DATABASE                        │
+│                         (Local / Neon)                                  │
 └────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────┐
@@ -295,8 +295,8 @@ FRONTEND                    BACKEND                     EXTERNAL
 └──────────────┘           └──────────────┘           └──────────────┘
 
 ┌──────────────┐           ┌──────────────┐           ┌──────────────┐
-│ React Router │           │   Pydantic   │           │  ElevenLabs  │
-│   v6         │           │   v2         │           │  TTS API     │
+│ React Router │           │   Pydantic   │           │ Gemini/OpenAI│
+│   v6         │           │   v2         │           │ /ElevenLabs │
 └──────────────┘           └──────────────┘           └──────────────┘
 
 ┌──────────────┐           ┌──────────────┐           ┌──────────────┐

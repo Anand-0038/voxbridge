@@ -4,10 +4,11 @@ import asyncio
 import os
 import re
 import sqlite3
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable
+from typing import Any
 
 import asyncpg
 from dotenv import load_dotenv
@@ -20,9 +21,7 @@ _pool: Any = None
 
 def is_sqlite_database(database_url: str | None = None) -> bool:
     """Return whether the configured database URL selects local SQLite."""
-    return (database_url or os.getenv("DATABASE_URL", "")).lower().startswith(
-        "sqlite:"
-    )
+    return (database_url or os.getenv("DATABASE_URL", "")).lower().startswith("sqlite:")
 
 
 def _sqlite_path(database_url: str) -> str:
@@ -38,10 +37,14 @@ def _sqlite_path(database_url: str) -> str:
     return str(path)
 
 
-def _convert_sqlite_query(query: str, args: tuple[Any, ...]) -> tuple[str, tuple[Any, ...]]:
+def _convert_sqlite_query(
+    query: str, args: tuple[Any, ...]
+) -> tuple[str, tuple[Any, ...]]:
     """Translate asyncpg positional placeholders to sqlite placeholders."""
     converted_query = re.sub(r"\$\d+", "?", query)
-    converted_query = re.sub(r"\s+FOR\s+UPDATE\s*$", "", converted_query, flags=re.I)
+    converted_query = re.sub(
+        r"\s+FOR\s+UPDATE\s*$", "", converted_query, flags=re.IGNORECASE
+    )
     converted_args = tuple(
         value.isoformat() if isinstance(value, datetime) else value for value in args
     )
@@ -53,8 +56,10 @@ class SQLiteConnection:
 
     VoxBridge's local mode is intentionally single-process. A single connection
     plus an async lock keeps state updates atomic without introducing another
-    service for a recording/demo environment. Blocking sqlite calls execute in
-    worker threads so FastAPI's event loop remains responsive.
+    service for a recording/demo environment. Local queries are deliberately
+    small and run synchronously while holding the lock; this avoids creating
+    executor work for every request and keeps the single-process demo lifecycle
+    deterministic.
     """
 
     def __init__(self, raw_connection: sqlite3.Connection):
@@ -65,10 +70,10 @@ class SQLiteConnection:
     async def _run(self, operation: Callable[[], Any]) -> Any:
         current_task = asyncio.current_task()
         if current_task is self._transaction_task:
-            return await asyncio.to_thread(operation)
+            return operation()
 
         async with self._lock:
-            return await asyncio.to_thread(operation)
+            return operation()
 
     def _rows(self, cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         columns = [column[0] for column in cursor.description or []]
@@ -92,7 +97,7 @@ class SQLiteConnection:
         def operation() -> list[dict[str, Any]]:
             if "information_schema.columns" in statement.lower():
                 table_match = re.search(
-                    r"table_name\s*=\s*'([^']+)'", statement, flags=re.I
+                    r"table_name\s*=\s*'([^']+)'", statement, flags=re.IGNORECASE
                 )
                 if not table_match:
                     return []
@@ -126,11 +131,11 @@ class SQLiteConnection:
         await self._lock.acquire()
         self._transaction_task = current_task
         try:
-            await asyncio.to_thread(self._raw_connection.execute, "BEGIN")
+            self._raw_connection.execute("BEGIN")
             yield self
-            await asyncio.to_thread(self._raw_connection.commit)
+            self._raw_connection.commit()
         except Exception:
-            await asyncio.to_thread(self._raw_connection.rollback)
+            self._raw_connection.rollback()
             raise
         finally:
             self._transaction_task = None
@@ -138,7 +143,7 @@ class SQLiteConnection:
 
     async def close(self) -> None:
         async with self._lock:
-            await asyncio.to_thread(self._raw_connection.close)
+            self._raw_connection.close()
 
 
 class SQLitePool:

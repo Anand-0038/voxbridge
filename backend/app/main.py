@@ -115,7 +115,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             
             # Record this request
             upload_requests[client_ip] = [*client_timestamps, current_time]
-            upload_requests.move_to_end(client_ip)
             _prune_rate_limit_entries(current_time)
         
         return await call_next(request)
@@ -145,9 +144,18 @@ def validate_environment():
     else:
         print(f"✓ Found {key_count} Gemini API keys for round-robin")
     
-    elevenlabs_key = os.getenv("ELEVENLABS_API_KEY", "")
-    if not elevenlabs_key or "your_" in elevenlabs_key:
-        warnings.append("ELEVENLABS_API_KEY not configured - TTS demo mode enabled")
+    demo_mode = os.getenv("DEMO_MODE", "false").lower() == "true"
+    tts_provider = os.getenv("TTS_PROVIDER", "fixture" if demo_mode else "elevenlabs").strip().lower()
+    if tts_provider == "elevenlabs":
+        elevenlabs_key = os.getenv("ELEVENLABS_API_KEY", "")
+        if not elevenlabs_key or "your_" in elevenlabs_key:
+            warnings.append("ELEVENLABS_API_KEY not configured for the selected TTS provider")
+    elif tts_provider == "openai":
+        openai_key = os.getenv("OPENAI_API_KEY", "")
+        if not openai_key or "your_" in openai_key:
+            warnings.append("OPENAI_API_KEY not configured for the selected TTS provider")
+    elif tts_provider in {"fixture", "demo"} and not demo_mode:
+        errors.append("Fixture TTS requires DEMO_MODE=true")
     
     # Check ffmpeg
     if not shutil.which("ffmpeg"):
@@ -304,6 +312,7 @@ async def health_check():
         "database": "unknown",
         "ffmpeg": "unknown",
         "gemini_api": "unknown",
+        "tts": "unknown",
         "demo_mode": os.getenv("DEMO_MODE", "false").lower() == "true",
     }
     
@@ -327,6 +336,25 @@ async def health_check():
         "total_keys": key_count,
         "healthy_keys": healthy_keys,
         "status": "ready" if healthy_keys > 0 else "no_keys"
+    }
+
+    # Check the selected TTS provider without exposing credential values.
+    tts_provider = os.getenv("TTS_PROVIDER", "fixture" if health_status["demo_mode"] else "elevenlabs").strip().lower()
+    if tts_provider == "elevenlabs":
+        tts_api_key = os.getenv("ELEVENLABS_API_KEY", "")
+        tts_ready = bool(tts_api_key and "your_" not in tts_api_key)
+    elif tts_provider == "openai":
+        tts_api_key = os.getenv("OPENAI_API_KEY", "")
+        tts_ready = bool(tts_api_key and "your_" not in tts_api_key)
+    elif tts_provider == "gemini":
+        tts_ready = healthy_keys > 0
+    else:
+        tts_ready = health_status["demo_mode"]
+
+    health_status["tts"] = {
+        "provider": tts_provider,
+        "api_key_configured": tts_ready,
+        "status": "ready" if tts_ready else "not_configured"
     }
     
     return health_status

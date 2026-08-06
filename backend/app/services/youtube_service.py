@@ -7,9 +7,18 @@ from urllib.parse import parse_qs, urlparse, urlunparse
 
 from app.utils.helpers import get_absolute_path
 
-
 YOUTUBE_HOSTS = {"youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
 VIDEO_PATH_PREFIXES = ("/watch", "/shorts/", "/embed/", "/live/")
+
+
+def _cleanup_download_artifacts(output_dir: str, job_id: str) -> None:
+    """Remove only artifacts produced by one failed YouTube job."""
+    for path in Path(output_dir).glob(f"{job_id}.*"):
+        if path.is_file():
+            try:
+                path.unlink()
+            except OSError as exc:
+                print(f"[YOUTUBE] Could not remove partial artifact {path}: {exc}")
 
 
 def normalize_youtube_url(value: str) -> str:
@@ -24,7 +33,9 @@ def normalize_youtube_url(value: str) -> str:
     host = parsed.hostname.lower().removeprefix("www.") if parsed.hostname else ""
 
     if parsed.scheme != "https" or host not in YOUTUBE_HOSTS:
-        raise ValueError("Only https://www.youtube.com or https://youtu.be URLs are supported")
+        raise ValueError(
+            "Only https://www.youtube.com or https://youtu.be URLs are supported"
+        )
 
     query = parse_qs(parsed.query)
     if host == "youtu.be":
@@ -33,8 +44,19 @@ def normalize_youtube_url(value: str) -> str:
     elif parsed.path == "/watch":
         if not query.get("v", [""])[0]:
             raise ValueError("The YouTube watch URL does not contain a video ID")
-    elif not parsed.path.startswith(VIDEO_PATH_PREFIXES[1:]):
-        raise ValueError("The YouTube URL must point to one video, not a channel or playlist")
+    else:
+        matching_prefix = next(
+            (
+                prefix
+                for prefix in VIDEO_PATH_PREFIXES[1:]
+                if parsed.path.startswith(prefix)
+            ),
+            None,
+        )
+        if not matching_prefix or not parsed.path[len(matching_prefix) :].strip("/"):
+            raise ValueError(
+                "The YouTube URL must point to one video, not a channel or playlist"
+            )
 
     return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", parsed.query, ""))
 
@@ -61,6 +83,7 @@ def _download_youtube_video(url: str, output_dir: str, job_id: str) -> dict:
             info = downloader.extract_info(url, download=True)
             prepared_path = Path(downloader.prepare_filename(info))
     except Exception as exc:
+        _cleanup_download_artifacts(output_dir, job_id)
         raise RuntimeError(f"YouTube download failed: {exc}") from exc
 
     candidates = [prepared_path, Path(output_dir) / f"{job_id}.mp4"]
@@ -75,7 +98,7 @@ def _download_youtube_video(url: str, output_dir: str, job_id: str) -> dict:
 
     max_bytes = int(os.getenv("MAX_UPLOAD_SIZE_MB", "500")) * 1024 * 1024
     if downloaded_path.stat().st_size > max_bytes:
-        downloaded_path.unlink(missing_ok=True)
+        _cleanup_download_artifacts(output_dir, job_id)
         raise RuntimeError(
             f"Downloaded video exceeds the {max_bytes // (1024 * 1024)}MB upload limit"
         )

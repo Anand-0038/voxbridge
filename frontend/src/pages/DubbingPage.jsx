@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import UiIcon from '../components/UiIcon'
 
 const LANGUAGES = [
+    { code: 'hi', name: 'Hindi' },
     { code: 'es', name: 'Spanish' },
     { code: 'fr', name: 'French' },
     { code: 'de', name: 'German' },
@@ -11,7 +13,6 @@ const LANGUAGES = [
     { code: 'ko', name: 'Korean' },
     { code: 'zh', name: 'Chinese' },
     { code: 'ar', name: 'Arabic' },
-    { code: 'hi', name: 'Hindi' },
 ]
 
 const POLL_INTERVAL_MS = 2000
@@ -26,13 +27,14 @@ const DUBBING_STEP_NAMES = {
 }
 
 function DubbingPage({ jobId, analysisData }) {
-    const [targetLanguage, setTargetLanguage] = useState('es')
+    const [targetLanguage, setTargetLanguage] = useState('hi')
     const [consentChecked, setConsentChecked] = useState(false)
     const [overrideSafety, setOverrideSafety] = useState(false)
     const [processing, setProcessing] = useState(false)
     const [progress, setProgress] = useState(0)
     const [currentStep, setCurrentStep] = useState('')
     const [error, setError] = useState(null)
+    const [platformStatus, setPlatformStatus] = useState(null)
     const navigate = useNavigate()
 
     // The backend database is the source of truth. These refs keep one
@@ -194,6 +196,22 @@ function DubbingPage({ jobId, analysisData }) {
 
     const isHighRisk = analysisData?.risk_level === 'high'
 
+    useEffect(() => {
+        const fetchPlatformStatus = async () => {
+            try {
+                const response = await fetch('/health')
+                if (response.ok) {
+                    const payload = await response.json()
+                    setPlatformStatus(payload)
+                }
+            } catch {
+                setPlatformStatus(null)
+            }
+        }
+
+        void fetchPlatformStatus()
+    }, [])
+
     const handleStartDubbing = async () => {
         // Validation
         if (!consentChecked) {
@@ -293,6 +311,7 @@ function DubbingPage({ jobId, analysisData }) {
             {/* Risk Warning */}
             {isHighRisk && (
                 <div className="alert alert-error">
+                    <UiIcon name="ShieldWarning" size={18} />
                     <strong>High-Risk Content Detected</strong>
                     <p style={{ marginTop: 'var(--spacing-2)' }}>
                         The content analysis found issues that may require review before proceeding.
@@ -305,10 +324,42 @@ function DubbingPage({ jobId, analysisData }) {
             <div className="card">
                 <div className="card-header">
                     <h2 className="card-title">Configure Dubbing</h2>
+                    <div style={{
+                        marginTop: 'var(--spacing-2)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-2)',
+                    }}>
+                        <span className="risk-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <UiIcon name="Translate" size={14} weight="bold" />
+                            Target: {LANGUAGES.find((lang) => lang.code === targetLanguage)?.name || targetLanguage.toUpperCase()}
+                        </span>
+                    </div>
                     <p style={{ color: 'var(--color-neutral-500)', marginTop: 'var(--spacing-2)' }}>
                         Select target language and confirm consent for AI voice generation
                     </p>
                 </div>
+
+                {platformStatus && (
+                    <div
+                        className={`alert ${platformStatus.demo_mode ? 'alert-warning' : 'alert-success'}`}
+                        style={{ marginBottom: 'var(--spacing-4)' }}
+                    >
+                        <UiIcon name={platformStatus.demo_mode ? 'WarningCircle' : 'CheckCircle'} size={18} />
+                        {platformStatus.demo_mode ? (
+                            <>
+                                <strong>Demo mode is enabled.</strong>{' '}
+                                Dubbing uses fixture audio/translated text. Set <code>DEMO_MODE=false</code> and configure
+                                Gemini + ElevenLabs to generate real Hindi speech.
+                            </>
+                        ) : (
+                            <>
+                                <strong>Real AI mode active.</strong>{' '}
+                                This job will be transcribed, translated, and synthesized with configured providers.
+                            </>
+                        )}
+                    </div>
+                )}
 
                 {(!jobId || jobId.startsWith('demo-')) && (
                     <div className="alert alert-info" role="status">
@@ -410,20 +461,24 @@ function DubbingPage({ jobId, analysisData }) {
                     gap: 'var(--spacing-4)',
                     marginTop: 'var(--spacing-6)'
                 }}>
-                    <button
-                        className="btn btn-secondary"
-                        onClick={() => navigate('/analysis')}
-                        disabled={processing}
-                    >
-                        Back to Analysis
-                    </button>
-                    <button
-                        className="btn btn-primary btn-lg"
-                        onClick={handleStartDubbing}
-                        disabled={processing || !jobId || jobId.startsWith('demo-') || !consentChecked || (isHighRisk && !overrideSafety)}
-                    >
-                        {processing ? 'Processing...' : 'Start Dubbing'}
-                    </button>
+                <button
+                    className="btn btn-secondary"
+                    aria-label="Back to Analysis"
+                    onClick={() => navigate('/analysis')}
+                    disabled={processing}
+                >
+                    <UiIcon name="ArrowLeft" size={18} weight="bold" />
+                    Back to Analysis
+                </button>
+                <button
+                    className="btn btn-primary btn-lg"
+                    aria-label="Start dubbing"
+                    onClick={handleStartDubbing}
+                    disabled={processing || !jobId || jobId.startsWith('demo-') || !consentChecked || (isHighRisk && !overrideSafety)}
+                >
+                    {processing ? <UiIcon name="CircleNotch" size={18} weight="bold" /> : <UiIcon name="Waveform" size={18} weight="bold" />}
+                    {processing ? 'Processing...' : 'Start Dubbing'}
+                </button>
                 </div>
             </div>
 

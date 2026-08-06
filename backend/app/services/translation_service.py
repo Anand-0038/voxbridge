@@ -14,6 +14,7 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 
 from app.models.schemas import TranscriptSegment, TranslationSegment
+from app.utils import get_language_name
 from app.utils import parse_gemini_json
 from app.utils.genai_client import GenAIClient
 
@@ -80,22 +81,7 @@ async def translate_transcript(
         for i, seg in enumerate(transcript)
     ], indent=2)
     
-    # Language code to full name mapping
-    language_names = {
-        "es": "Spanish",
-        "fr": "French",
-        "de": "German",
-        "it": "Italian",
-        "pt": "Portuguese",
-        "ja": "Japanese",
-        "ko": "Korean",
-        "zh": "Chinese",
-        "ar": "Arabic",
-        "hi": "Hindi",
-        "ru": "Russian",
-    }
-    
-    target_name = language_names.get(target_language, target_language)
+    target_name = get_language_name(target_language)
     
     # Retry configuration
     max_retries = 3

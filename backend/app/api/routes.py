@@ -8,7 +8,6 @@ import os
 import uuid
 from datetime import datetime
 
-import aiofiles
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
@@ -20,6 +19,7 @@ from app.models.schemas import (
     DubbingStatusResponse,
     RiskLevel,
     TranscriptSegment,
+    TranslationSegment,
     UploadResponse,
     YouTubeImportRequest,
 )
@@ -33,7 +33,7 @@ from app.services.audit_service import (
     update_job_status,
 )
 from app.services.media_service import (
-    concatenate_audio_with_timing,
+    create_dubbed_audio_track,
     encode_audio_format,
     extract_audio,
     get_video_duration,
@@ -45,6 +45,7 @@ from app.services.transcription_service import transcribe_audio
 from app.services.translation_service import translate_transcript
 from app.services.tts_service import synthesize_speech_parallel
 from app.services.youtube_service import download_youtube_video
+from app.services.transcription_service import detect_language
 from app.utils.helpers import (
     get_absolute_path,
     get_file_extension,
@@ -151,12 +152,14 @@ async def upload_video(
     file_size = 0
 
     try:
-        async with aiofiles.open(file_path, "wb") as f:
+        # UploadFile may be backed by a disk spool; reading its underlying
+        # handle directly avoids a second executor hop for every chunk.
+        with open(file_path, "wb") as output_file:
             while True:
-                chunk = await file.read(CHUNK_SIZE)
+                chunk = file.file.read(CHUNK_SIZE)
                 if not chunk:
                     break
-                await f.write(chunk)
+                output_file.write(chunk)
                 file_size += len(chunk)
     except Exception as e:
         # Clean up partial file on error
@@ -234,16 +237,17 @@ async def import_youtube_video(
 
         from app.utils.helpers import validate_file_signature
 
-        signature = await asyncio.to_thread(
-            validate_file_signature, file_path, "video"
-        )
+        signature = await asyncio.to_thread(validate_file_signature, file_path, "video")
         if not signature["valid"]:
             raise HTTPException(
                 status_code=400,
                 detail=f"Downloaded file is not a valid video: {signature['message']}",
             )
 
-        filename = sanitize_filename(downloaded.get("filename") or os.path.basename(file_path))
+        filename = (
+            sanitize_filename(downloaded.get("filename") or os.path.basename(file_path))
+            or f"{job_id}.mp4"
+        )
         if not get_file_extension(filename):
             filename = f"{filename}{os.path.splitext(file_path)[1] or '.mp4'}"
         relative_file_path = get_relative_path(file_path)
@@ -280,6 +284,8 @@ async def import_youtube_video(
         )
     except HTTPException:
         raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     finally:
@@ -309,7 +315,9 @@ async def process_uploaded_video(job_id: str, video_path: str):
     except asyncio.TimeoutError:
         error_msg = "Processing timed out after 5 minutes"
         print(f"[PIPELINE] ✗ Job {job_id} TIMEOUT: {error_msg}")
-        await asyncio.to_thread(_remove_file_if_exists, video_path)
+        # Removing one local artifact is tiny and deterministic; keep cleanup
+        # inline so timeout handling cannot leave an executor task behind.
+        _remove_file_if_exists(video_path)
         await save_job_state(job_id, {"error": error_msg})
         await log_step(job_id, "pipeline_timeout", "failed", {"timeout": 300})
         await update_job_status(job_id, "error")
@@ -320,7 +328,7 @@ async def process_uploaded_video(job_id: str, video_path: str):
         error_msg = str(e)
         print(f"[PIPELINE] ✗ Job {job_id} failed: {error_msg}")
         print(traceback.format_exc())
-        await asyncio.to_thread(_remove_file_if_exists, video_path)
+        _remove_file_if_exists(video_path)
         await save_job_state(job_id, {"error": error_msg})
         await log_step(job_id, "processing_error", "failed", {"error": error_msg})
         await update_job_status(job_id, "error")
@@ -373,7 +381,9 @@ async def _process_uploaded_video_internal(job_id: str, video_path: str):
                 (
                     seg.model_dump()
                     if hasattr(seg, "model_dump")
-                    else seg.__dict__ if hasattr(seg, "__dict__") else seg
+                    else seg.__dict__
+                    if hasattr(seg, "__dict__")
+                    else seg
                 )
                 for seg in transcript
             ],
@@ -582,7 +592,9 @@ async def approve_and_dub(
         job_id,
         "override_safety",
         str(request.override_safety).lower(),
-        reason="User acknowledged high-risk review requirement." if request.override_safety else "Not acknowledged",
+        reason="User acknowledged high-risk review requirement."
+        if request.override_safety
+        else "Not acknowledged",
     )
 
     # Start dubbing - status updated in database
@@ -633,12 +645,50 @@ async def run_dubbing_pipeline(job_id: str, target_language: str):
             job_id, "translation", "started", {"target_language": target_language}
         )
         translated = await translate_transcript(transcript, target_language)
+
+        # Detect source language for audit traceability.
+        source_language = "en"
+        if transcript:
+            first_text = str(transcript[0].text or "").strip()
+            if first_text:
+                try:
+                    source_language = await detect_language(first_text)
+                except Exception:
+                    source_language = "en"
+
+        translated_segments = [
+            segment
+            for segment in translated
+            if isinstance(segment, TranslationSegment) and segment.translated_text.strip()
+        ]
+        translated_confidences = [
+            float(seg.confidence or 0.0) for seg in translated_segments
+        ]
+        translation_avg_confidence = (
+            sum(translated_confidences) / len(translated_confidences)
+            if translated_confidences
+            else 0.0
+        )
+        translation_examples = [
+            {
+                "index": index,
+                "original_text": segment.original_text,
+                "translated_text": segment.translated_text,
+            }
+            for index, segment in enumerate(translated_segments[:3])
+        ]
+
         await log_step(
             job_id,
             "translation",
             "completed",
             {
+                "source_language": source_language,
+                "target_language": target_language,
                 "segment_count": len(translated),
+                "segments_translated": len(translated_segments),
+                "average_confidence": translation_avg_confidence,
+                "samples": translation_examples,
             },
         )
 
@@ -650,7 +700,9 @@ async def run_dubbing_pipeline(job_id: str, target_language: str):
                     (
                         t.model_dump(mode="json")
                         if hasattr(t, "model_dump")
-                        else t.__dict__ if hasattr(t, "__dict__") else t
+                        else t.__dict__
+                        if hasattr(t, "__dict__")
+                        else t
                     )
                     for t in translated
                 ],
@@ -799,18 +851,6 @@ async def run_dubbing_pipeline(job_id: str, target_language: str):
             }
         )
 
-        if not segment_paths:
-            print(f"ERROR: No valid audio segments found for job {job_id}")
-            await log_step(
-                job_id,
-                "audio_segment_validation",
-                "failed",
-                {"missing_segment_indices": missing_segments},
-            )
-            raise RuntimeError(
-                "No audio segments were generated. Cannot create dubbed video."
-            )
-
         if missing_segments:
             print(
                 f"WARNING: {len(missing_segments)} audio segments will be silence-padded for job {job_id}: indices {missing_segments}"
@@ -829,12 +869,13 @@ async def run_dubbing_pipeline(job_id: str, target_language: str):
             f"Found {len(segment_paths)} audio segments to concatenate (sorted by start_time)"
         )
 
-        # AUDIO SYNC FIX: Use timestamp-aware concatenation with silence padding
-        # This fixes the "drifting audio" problem by inserting silence between segments
-        # to respect the original video timestamps
-        await concatenate_audio_with_timing(
+        # Build the timeline against the source video duration. The legacy
+        # concatenation wrapper only extends to the last spoken segment and
+        # truncates videos that contain trailing silence or visuals.
+        await create_dubbed_audio_track(
             segments=timeline_segments,
-            output_path=timeline_audio_path,
+            video_path=video_path,
+            output_audio_path=timeline_audio_path,
             temp_dir=os.path.dirname(output_audio_path),
         )
         await encode_audio_format(timeline_audio_path, output_audio_path)
@@ -851,7 +892,11 @@ async def run_dubbing_pipeline(job_id: str, target_language: str):
                 video_path=video_path,
                 audio_path=output_audio_path,
                 output_path=output_video_path,
-                preserve_background=True,  # Merge both audios as requested
+                # Replace original audio by default for a clear dubbing result.
+                # Use PRESERVE_ORIGINAL_AUDIO=true in env to keep a ducked
+                # background mix for scenarios where that is preferred.
+                preserve_background=os.getenv("PRESERVE_ORIGINAL_AUDIO", "false").lower()
+                == "true",
             )
             print(f"Created dubbed video: {output_video_path}")
 
@@ -900,8 +945,8 @@ async def run_dubbing_pipeline(job_id: str, target_language: str):
             ),
         }
 
-        async with aiofiles.open(output_audit_path, "w") as f:
-            await f.write(json.dumps(audit_data, indent=2))
+        with open(output_audit_path, "w", encoding="utf-8") as audit_file:
+            json.dump(audit_data, audit_file, indent=2)
 
         await log_step(
             job_id,

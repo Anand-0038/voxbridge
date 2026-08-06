@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import VideoPreview from '../components/VideoPreview'
+import UiIcon from '../components/UiIcon'
 
 function UploadPage({ onUploadComplete, onDemoMode }) {
     const [file, setFile] = useState(null)
@@ -9,10 +10,27 @@ function UploadPage({ onUploadComplete, onDemoMode }) {
     const [error, setError] = useState(null)
     const [dragActive, setDragActive] = useState(false)
     const [showPreview, setShowPreview] = useState(false)
+    const [platformStatus, setPlatformStatus] = useState(null)
     const [youtubeUrl, setYoutubeUrl] = useState('')
     const [sourceMode, setSourceMode] = useState('file')
     const fileInputRef = useRef(null)
     const navigate = useNavigate()
+
+    useEffect(() => {
+        const loadPlatformStatus = async () => {
+            try {
+                const response = await fetch('/health')
+                if (response.ok) {
+                    const payload = await response.json()
+                    setPlatformStatus(payload)
+                }
+            } catch {
+                setPlatformStatus(null)
+            }
+        }
+
+        loadPlatformStatus()
+    }, [])
 
     const handleDrag = (e) => {
         e.preventDefault()
@@ -230,6 +248,24 @@ function UploadPage({ onUploadComplete, onDemoMode }) {
                     </p>
                 </div>
 
+                {platformStatus && platformStatus.demo_mode && (
+                    <div className="alert alert-warning" style={{ marginBottom: 'var(--spacing-4)' }}>
+                        <UiIcon name="WarningCircle" size={18} />
+                        <strong>Demo mode is active.</strong> This keeps transcription and dubbing in local fixture mode.
+                        Set <code>DEMO_MODE=false</code> and configure real credentials to run genuine AI dubbing.
+                    </div>
+                )}
+
+                {platformStatus && !platformStatus.demo_mode && platformStatus.tts?.status !== 'ready' && (
+                    <div className="alert alert-error" style={{ marginBottom: 'var(--spacing-4)' }}>
+                        <UiIcon name="PlugSlash" size={16} />
+                        <strong>Real AI mode is not fully configured.</strong> The API status currently shows:
+                        {' '}
+                        {platformStatus.tts?.status || 'unknown'}.
+                        Configure a valid <code>ELEVENLABS_API_KEY</code> to enable true voice synthesis.
+                    </div>
+                )}
+
                 {error && (
                     <div className="alert alert-error">
                         {error}
@@ -245,9 +281,7 @@ function UploadPage({ onUploadComplete, onDemoMode }) {
                     onClick={() => fileInputRef.current?.click()}
                 >
                     <div className="upload-icon">
-                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                        </svg>
+                        <UiIcon name="UploadSimple" size={44} weight="duotone" />
                     </div>
                     {file ? (
                         <div>
@@ -264,13 +298,13 @@ function UploadPage({ onUploadComplete, onDemoMode }) {
                             </p>
                         </div>
                     )}
-                <input
+                    <input
                         ref={fileInputRef}
                         type="file"
                         accept="video/mp4,video/quicktime,video/x-msvideo,video/matroska,video/mkv,video/webm,video/x-matroska,video/avi,video/m4v,video/x-m4v"
                         onChange={handleFileSelect}
                         style={{ display: 'none' }}
-                />
+                    />
                 </div>
 
                 {/* Video Preview */}
@@ -310,9 +344,15 @@ function UploadPage({ onUploadComplete, onDemoMode }) {
                 }}>
                     <button
                         className="btn btn-primary btn-lg"
+                        aria-label="Upload and analyze"
                         onClick={handleUpload}
                         disabled={!file || uploading}
                     >
+                        <UiIcon
+                            name="UploadSimple"
+                            size={20}
+                            weight="bold"
+                        />
                         {uploading ? 'Processing...' : 'Upload and Analyze'}
                     </button>
                 </div>
@@ -340,9 +380,11 @@ function UploadPage({ onUploadComplete, onDemoMode }) {
                 </div>
                 <button
                     className="btn btn-secondary"
+                    aria-label="Download YouTube and analyze"
                     onClick={handleYoutubeImport}
                     disabled={!youtubeUrl.trim() || uploading}
                 >
+                    <UiIcon name="YoutubeLogo" size={20} weight="bold" />
                     {uploading && sourceMode === 'youtube' ? 'Downloading...' : 'Download and Analyze'}
                 </button>
                 <p style={{
@@ -375,9 +417,11 @@ function UploadPage({ onUploadComplete, onDemoMode }) {
                         </p>
                         <button
                             className="btn btn-secondary"
+                            aria-label="Preview safe content sample"
                             onClick={() => handleDemoMode('safe')}
                             disabled={uploading}
                         >
+                            <UiIcon name="Play" size={18} weight="bold" />
                             Preview Safe Sample
                         </button>
                     </div>
@@ -392,9 +436,11 @@ function UploadPage({ onUploadComplete, onDemoMode }) {
                         </p>
                         <button
                             className="btn btn-secondary"
+                            aria-label="Preview flagged content sample"
                             onClick={() => handleDemoMode('flagged')}
                             disabled={uploading}
                         >
+                            <UiIcon name="Warning" size={18} weight="bold" />
                             Preview Flagged Sample
                         </button>
                     </div>

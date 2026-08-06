@@ -305,16 +305,24 @@ async def normalize_segment_duration(
         
         print(f"[NORM] {os.path.basename(audio_path)}: {actual_duration:.2f}s → {target_duration:.2f}s (padding)")
         
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        _, stderr = await process.communicate()
-        
-        if process.returncode != 0:
-            print(f"[NORM] Padding failed: {stderr.decode()}")
+        # Use a bounded synchronous subprocess for sequential segment
+        # conversion.  The local asyncio subprocess transport can hang after
+        # several FFmpeg invocations even though the same command succeeds.
+        try:
+            completed = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            print("[NORM] Padding timed out; falling back to format normalization")
+            return await normalize_audio_format(audio_path, output_path)
+
+        if completed.returncode != 0:
+            print(f"[NORM] Padding failed: {completed.stderr}")
             return await normalize_audio_format(audio_path, output_path)
         
         return output_path
@@ -545,6 +553,9 @@ async def place_audio_on_timeline(
     
     if not segments:
         raise ValueError("No audio segments provided")
+
+    if total_duration <= 0:
+        raise ValueError("Total duration must be greater than zero")
     
     output_path = get_absolute_path(output_path)
     temp_dir = get_absolute_path(temp_dir)
@@ -588,17 +599,47 @@ async def place_audio_on_timeline(
             continue
     
     if not normalized_files:
-        raise ValueError("No valid audio segments after normalization")
+        print("[TIMELINE] No valid segments after normalization; generating silent baseline")
+        silence_cmd = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"anullsrc=channel_layout=stereo:sample_rate={SAMPLE_RATE}",
+            "-t",
+            str(total_duration),
+            "-ar",
+            str(SAMPLE_RATE),
+            "-ac",
+            str(CHANNELS),
+            "-c:a",
+            "pcm_s16le",
+            output_path,
+        ]
+
+        process = await asyncio.create_subprocess_exec(
+            *silence_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            raise RuntimeError(f"Failed to create silent baseline: {stderr.decode(errors='replace')}")
+
+        return output_path
     
     # If only one segment, just delay and output
     if len(normalized_files) == 1:
         seg = normalized_files[0]
         cmd = [
             "ffmpeg", "-y", "-i", seg['path'],
-            "-af", f"adelay={seg['start_ms']}|{seg['start_ms']},apad=whole_dur={total_duration}",
+            "-af", f"adelay={seg['start_ms']}|{seg['start_ms']},apad=pad_dur={total_duration}",
             "-ar", str(SAMPLE_RATE),
             "-ac", str(CHANNELS),
             "-c:a", "pcm_s16le",
+            "-t", str(total_duration),
             output_path
         ]
         
@@ -636,7 +677,7 @@ async def place_audio_on_timeline(
     filter_parts.append(mix_filter)
     
     # Pad to total duration
-    filter_parts.append(f"[mixed]apad=whole_dur={total_duration}[out]")
+    filter_parts.append(f"[mixed]apad=pad_dur={total_duration}[out]")
     
     filter_complex = ";".join(filter_parts)
     
@@ -648,6 +689,7 @@ async def place_audio_on_timeline(
         "-ar", str(SAMPLE_RATE),
         "-ac", str(CHANNELS),
         "-c:a", "pcm_s16le",
+        "-t", str(total_duration),
         output_path
     ]
     

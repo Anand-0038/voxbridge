@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import VideoPreview from '../components/VideoPreview'
+import UiIcon from '../components/UiIcon'
 
 function ResultsPage({ jobId, demoContext }) {
     const [auditData, setAuditData] = useState(null)
@@ -277,8 +278,10 @@ function ResultsPage({ jobId, demoContext }) {
                 </div>
 
                 <div className="grid grid-3">
-                    <div style={{ textAlign: 'center', padding: 'var(--spacing-4)' }}>
-                        <div style={{ fontSize: '3rem', marginBottom: 'var(--spacing-2)' }}>🎬</div>
+                            <div style={{ textAlign: 'center', padding: 'var(--spacing-4)' }}>
+                        <div style={{ marginBottom: 'var(--spacing-2)' }}>
+                            <UiIcon name="Video" size={36} weight="duotone" />
+                        </div>
                         <h4>Dubbed Video</h4>
                         <p style={{
                             color: 'var(--color-neutral-500)',
@@ -293,7 +296,9 @@ function ResultsPage({ jobId, demoContext }) {
                     </div>
 
                     <div style={{ textAlign: 'center', padding: 'var(--spacing-4)' }}>
-                        <div style={{ fontSize: '3rem', marginBottom: 'var(--spacing-2)' }}>🎵</div>
+                        <div style={{ marginBottom: 'var(--spacing-2)' }}>
+                            <UiIcon name="MusicNotes" size={36} weight="duotone" />
+                        </div>
                         <h4>Audio Track</h4>
                         <p style={{
                             color: 'var(--color-neutral-500)',
@@ -308,7 +313,9 @@ function ResultsPage({ jobId, demoContext }) {
                     </div>
 
                     <div style={{ textAlign: 'center', padding: 'var(--spacing-4)' }}>
-                        <div style={{ fontSize: '3rem', marginBottom: 'var(--spacing-2)' }}>📋</div>
+                        <div style={{ marginBottom: 'var(--spacing-2)' }}>
+                            <UiIcon name="FileText" size={36} weight="duotone" />
+                        </div>
                         <h4>Audit Report</h4>
                         <p style={{
                             color: 'var(--color-neutral-500)',
@@ -386,7 +393,7 @@ function ResultsPage({ jobId, demoContext }) {
                     ))}
                 </div>
 
-                {/* Metrics Grid */}
+                    {/* Metrics Grid */}
                 <div className="grid grid-3" style={{ marginBottom: 'var(--spacing-4)' }}>
                     {/* Safety */}
                     <div className="card" style={{ backgroundColor: 'var(--color-neutral-100)' }}>
@@ -417,17 +424,33 @@ function ResultsPage({ jobId, demoContext }) {
                         {auditData.translation_data ? (
                             <>
                                 <p style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600 }}>
-                                    {auditData.translation_data.source_language?.toUpperCase() || '?'} → {auditData.translation_data.target_language?.toUpperCase() || '?'}
+                                    {(auditData.translation_data.source_language || 'en').toUpperCase()} → {(auditData.translation_data.target_language || '?').toUpperCase()}
                                 </p>
                                 <p style={{
                                     marginTop: 'var(--spacing-2)',
                                     fontSize: 'var(--font-size-sm)',
                                     color: 'var(--color-neutral-600)'
                                 }}>
-                                    Segments: {auditData.translation_data.segments_translated || 0}
+                                    Segments: {auditData.translation_data.segments_translated ?? auditData.translation_data.segment_count ?? 0}
                                     <br />
                                     Avg Confidence: {((auditData.translation_data.average_confidence || 0) * 100).toFixed(0)}%
                                 </p>
+                                {auditData.translation_data.samples?.length > 0 && (
+                                    <div style={{
+                                        marginTop: 'var(--spacing-2)',
+                                        color: 'var(--color-neutral-600)',
+                                        fontSize: 'var(--font-size-sm)'
+                                    }}>
+                                        <div style={{ fontWeight: 600, marginBottom: 'var(--spacing-1)' }}>
+                                            Preview
+                                        </div>
+                                        {auditData.translation_data.samples.map((sample) => (
+                                            <p key={sample.index}>
+                                                {sample.original_text} → {sample.translated_text}
+                                            </p>
+                                        ))}
+                                    </div>
+                                )}
                             </>
                         ) : (
                             <p style={{ color: 'var(--color-neutral-500)' }}>pending...</p>
