@@ -1,0 +1,30 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "FastAPI backend for the VoxBridge responsible AI dubbing pipeline"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiofiles>=23.2.1",
+    "asyncpg>=0.29.0",
+    "elevenlabs>=1.0.0",
+    "fastapi>=0.109.0",
+    "ffmpeg-python>=0.2.0",
+    "google-generativeai>=0.3.0",
+    "pydantic-settings>=2.1.0",
+    "pydantic>=2.5.0",
+    "python-dotenv>=1.0.0",
+    "python-multipart>=0.0.9",
+    "requests>=2.31.0",
+    "yt-dlp>=2025.1.15",
+    "uvicorn[standard]>=0.27.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

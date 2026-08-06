@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.eggs/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Environment
+.env
+.env.local
+*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Storage
+storage/uploads/
+storage/processed/
+storage/outputs/
+/backend/storage/
+*.db
+
+# Logs
+*.log
+nohup.out
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+*.pyc
+*.egg
+
+# Internal planning notes (kept locally, not part of the public repository)
+/instruction.md
+/project.md
+/rules.md
