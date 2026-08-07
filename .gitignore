@@ -18,15 +18,11 @@ npm-debug.log
 yarn-error.log
 
 # Environment
-.env
-.env.local
-.env.*
 !.env.example
 *.local
 
 # IDE
 .idea/
-.vscode/
 *.swp
 *.swo
 *~
@@ -54,3 +50,7 @@ Thumbs.db
 /instruction.md
 /project.md
 /rules.md
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+config.bat
