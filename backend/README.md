@@ -47,6 +47,21 @@ For real-provider mode, set `DEMO_MODE=false` and select `gemini`, `openai`, or
 `elevenlabs` with `TTS_PROVIDER`. OpenAI uses `OPENAI_API_KEY`, while Gemini can
 reuse the configured Gemini key. Use PostgreSQL if deploying beyond a local demo.
 
+YouTube may reject anonymous `yt-dlp` requests with a bot-check message. For a
+trusted local recording environment, configure one authenticated source in
+`.env` and restart the backend:
+
+```bash
+YOUTUBE_COOKIES_FROM_BROWSER=chrome
+```
+
+You can use another supported browser, or set `YOUTUBE_COOKIES_FILE` to a
+YouTube-only Netscape cookie file instead. VoxBridge passes the cookies to
+`yt-dlp` at runtime and does not persist or log their values. Keep the browser
+session and downloader on the same network; YouTube may invalidate stale
+cookies. If YouTube still requires a proof-of-origin token, configure
+`YOUTUBE_REMOTE_COMPONENTS=ejs:github` as supported by the installed `yt-dlp`.
+
 ### Running
 
 ```bash

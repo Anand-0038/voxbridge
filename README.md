@@ -1,108 +1,100 @@
 # VoxBridge
 
-Responsible multilingual video dubbing for creators, with safety checks,
-consent controls, and an auditable workflow.
+Turn one creator video into a synchronized multilingual cut without rebuilding
+the edit by hand.
 
 ![VoxBridge upload workflow](docs/screenshots/voxbridge-home.png)
 
----
+## Creator Outcome
 
-## What It Does
+Upload a video or import a public YouTube URL, choose a target language, and
+download three usable deliverables:
 
-VoxBridge turns an uploaded video or public YouTube URL into a translated,
-dubbed video without treating AI localization as a black box.
+- A dubbed MP4 with speech aligned to the original timeline
+- A separate dubbed audio track for further editing
+- A JSON audit report with the processing history
 
-Before voice synthesis, it transcribes the source, checks the transcript for
-toxicity, bias, misinformation risk, and cultural-sensitivity concerns, and
-requires explicit user approval. The final result includes the dubbed video,
-its audio track, and a downloadable audit report.
+VoxBridge brings transcription, translation, voice generation, timing, and
+final media assembly into one workflow. Creators and small editing teams can
+review one completed cut instead of coordinating several disconnected tools
+and manually rebuilding the audio timeline.
 
----
+## Verified Working Result
 
-## The Workflow
+The core flow has been tested with real provider calls and real media output,
+not mocked success states.
 
-1. Upload a local video or acquire one public YouTube video.
-2. Extract and transcribe speech with timestamps.
-3. Review safety findings and their evidence.
-4. Choose a target language and confirm voice-synthesis consent.
-5. Translate and generate real speech with the configured TTS provider.
-6. Synchronize the new speech with the source video using FFmpeg.
-7. Download the dubbed video, audio track, and audit report.
-
-## Completed Result
+| Check | Verified result |
+|---|---|
+| Source | 5:55 creator video |
+| Localization | English to Hindi |
+| Voice generation | Real Gemini TTS with `DEMO_MODE=false` |
+| Timeline integrity | Source and dubbed output both `355.966667s` |
+| Final media | AV1 video stream plus AAC dubbed audio stream |
+| Downloads | Dubbed MP4, MP3 audio, and JSON audit report |
+| Backend verification | 39 tests passed |
 
 ![VoxBridge completed dubbing result](docs/screenshots/voxbridge-results.png)
 
----
+## The Creator Workflow
 
-## Core Capabilities
+1. Upload a local video or import one public YouTube video.
+2. VoxBridge extracts and transcribes speech with timestamps.
+3. The creator reviews the transcript and any content warnings.
+4. The creator selects a target language and confirms voice-generation consent.
+5. VoxBridge translates each timestamped segment and generates multilingual speech.
+6. FFmpeg fits the new speech to the original edit and preserves the full video duration.
+7. The creator previews and downloads the video, audio, and processing report.
 
-- Pre-dubbing content moderation
-- Bias, toxicity, and misinformation detection
-- Translation transparency with confidence scores
-- Ethical voice synthesis with consent enforcement
-- End-to-end audit logging
-- YouTube URL acquisition alongside local file upload
-- Local SQLite mode for reproducible demo recording
-- Provider-selectable TTS through Gemini, OpenAI, or ElevenLabs
-- Timestamp-aware audio placement with output duration validation
+## What Makes It Useful
 
----
+- One upload-to-download localization workflow
+- Timestamp-aware speech placement instead of naive audio concatenation
+- Automatic handling of silence, segment gaps, and speech-duration mismatch
+- Output validation that rejects missing audio or truncated video
+- Local file upload and public YouTube URL intake
+- Gemini, OpenAI, and ElevenLabs TTS provider support
+- Downloadable assets that remain editable by the creator or editor
 
-## Architecture Summary
+## Trust Layer
 
+Safety is a checkpoint, not the product pitch. Before dubbing, VoxBridge flags
+potential toxicity, bias, misinformation risk, and cultural-sensitivity issues.
+The creator remains in control: flagged content requires acknowledgment, voice
+generation requires consent, and provider failures are shown instead of being
+replaced with fabricated output.
+
+## Architecture
+
+```text
+Video upload / public URL
+          |
+          v
+FastAPI job pipeline
+          |
+          +--> timestamped transcription
+          +--> content review
+          +--> segment translation
+          +--> multilingual TTS
+          +--> FFmpeg timeline placement and validation
+          |
+          v
+Dubbed MP4 + audio track + audit report
 ```
-React Frontend
-       |
-       v
-FastAPI Gateway
-       |
-       v
-Service Layer
-  - Media Processing
-  - Safety Analysis (Core)
-  - Translation
-  - Voice Synthesis
-  - Audit Logging
-       |
-       v
-Final Dubbed Video + Compliance Logs
-```
 
----
+## Technology
 
-## Technology Stack
-
-| Layer | Tech |
-|------|-----|
-| Frontend | React + Vite |
-| Backend | FastAPI (Python 3.11) |
+| Layer | Technology |
+|---|---|
+| Frontend | React, Vite |
+| Backend | FastAPI, Python 3.11 |
 | AI | Gemini API |
 | TTS | Gemini, OpenAI, or ElevenLabs |
-| Media | ffmpeg, MoviePy |
-| Database | SQLite locally, PostgreSQL for deployment |
-| Package Mgmt | uv |
+| Media | FFmpeg |
+| Persistence | SQLite locally, PostgreSQL-ready adapter |
+| Package management | uv, npm |
 
----
-
-## Responsible AI Focus
-
-This is **not** a dubbing tool with safety added later.  
-Safety is the **first-class feature**.
-
-Every AI decision:
-- Is explainable
-- Is logged
-- Can be audited
-- Can be overridden only with acknowledgment
-
-VoxBridge does not silently fall back to fabricated speech when a provider
-fails. Real mode reports provider, credential, quota, and media-processing
-errors directly to the user.
-
----
-
-## Quick Start
+## Run Locally
 
 ### Backend
 
@@ -110,10 +102,10 @@ errors directly to the user.
 cd backend
 uv sync
 cp .env.example .env
-# Add Gemini credentials, then keep:
+# Add Gemini credentials and keep:
 # DEMO_MODE=false
 # TTS_PROVIDER=gemini
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 ### Frontend
@@ -121,68 +113,48 @@ uv run uvicorn app.main:app --reload
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-### Access Points
+Open `http://127.0.0.1:5173`.
 
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:8000
-- API Docs: http://localhost:8000/docs
+## Judge Walkthrough
 
----
+The complete product can be evaluated in a short recording or local run:
 
-## Provider Modes
+1. Show the upload screen and select a source video.
+2. Show timestamped transcription and content review.
+3. Select Hindi and confirm voice consent.
+4. Start dubbing and show real pipeline progress.
+5. Preview the completed result.
+6. Download the dubbed MP4 and audit report.
+7. Compare source and output duration with FFprobe.
 
-- `gemini`: current verified local provider for analysis, translation, and TTS.
-- `openai`: OpenAI speech generation using `OPENAI_API_KEY`.
-- `elevenlabs`: ElevenLabs multilingual speech using `ELEVENLABS_API_KEY`.
-- `fixture`: clearly labeled local tone output, available only with `DEMO_MODE=true`.
+The recommended submission demo is a 2-4 minute screen recording following
+these steps. The current recordings are available here:
 
-## Honest Demo Boundary
+## Demo Recordings
 
-The frontend's safe and flagged samples are safety previews only; they do not
-create fake jobs or downloadable artifacts. For a complete local artifact
-demo, run the backend with the explicit fixture provider and upload a real
-video:
-
-```bash
-cd backend
-DEMO_MODE=true TTS_PROVIDER=fixture uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
-
-This still exercises YouTube/file acquisition, SQLite persistence, FFmpeg
-extraction/mixing/merge, consent, and audit/download endpoints. The transcript,
-translation, and tone audio are labeled fixtures rather than external-provider
-output.
-
-Real mode uses Gemini plus the selected Gemini, OpenAI, or ElevenLabs TTS
-provider. Provider failures are surfaced as job errors; no fabricated voice
-fallback is used.
-
-Judges are encouraged to review audit logs.
-
----
+- [Vimeo demo](https://vimeo.com/1216336577?share=copy&fl=sv&fe=ci)
+- [Loom walkthrough](https://www.loom.com/share/2d1a26ee868746a386d2291044a9412b)
 
 ## API Reference
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/upload-video` | POST | Upload video file (MP4, MOV, AVI, MKV, WEBM) |
-| `/api/import-youtube` | POST | Acquire one public YouTube video URL |
-| `/api/analyze-content` | POST | Run safety checks, returns risk report |
-| `/api/approve-and-dub` | POST | Proceed with dubbing after approval |
-| `/api/audit-report/{job_id}` | GET | Retrieve audit logs and compliance data |
-| `/api/job-status/{job_id}` | GET | Check current job status |
-| `/api/download/{type}/{job_id}` | GET | Download video, audio, or audit file |
-
----
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/upload-video` | POST | Upload source media |
+| `/api/import-youtube` | POST | Acquire one public YouTube URL |
+| `/api/analyze-content` | POST | Transcribe and review content |
+| `/api/approve-and-dub` | POST | Translate and generate the dubbed cut |
+| `/api/job-status/{job_id}` | GET | Read live pipeline progress |
+| `/api/audit-report/{job_id}` | GET | Retrieve processing evidence |
+| `/api/download/{type}/{job_id}` | GET | Download video, audio, or report |
 
 ## Documentation
 
-- `ARCHITECTURE.md` — system design details
-
----
+- `ARCHITECTURE.md` - detailed system design
+- `backend/README.md` - backend configuration and API notes
+- `frontend/README.md` - frontend commands and behavior
 
 ## License
 
